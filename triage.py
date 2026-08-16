@@ -1,5 +1,9 @@
 import argparse
+import json
+import os
 import sys
+import urllib.error
+import urllib.request
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -138,6 +142,62 @@ def render_report(results: list[BuildResult], logs_dir: Path) -> str:
     return "\n".join(lines)
 
 
+# Cap how many builds are listed per category so the Slack message stays
+# short and scannable, even when a run has many failures.
+MAX_BUILDS_PER_CATEGORY = 2
+MAX_REASON_LEN = 80
+
+
+def truncate(text: str, max_len: int = MAX_REASON_LEN) -> str:
+    return text if len(text) <= max_len else text[:max_len] + "..."
+
+
+def build_slack_blocks(results: list[BuildResult]) -> list[dict]:
+    """Build a compact Slack Block Kit summary: header, totals, then failures grouped by category."""
+    failed = [result for result in results if result.status != "SUCCESS"]
+    blocks: list[dict] = [
+        {"type": "header", "text": {"type": "plain_text", "text": "Jenkins Build Triage Report"}},
+        {"type": "section", "fields": [
+            {"type": "mrkdwn", "text": f"📊 *Analyzed:* {len(results)}"},
+            {"type": "mrkdwn", "text": f"❌ *Failures:* {len(failed)}"},
+        ]},
+    ]
+
+    clusters = cluster_failures(results)
+    for category, group in sorted(clusters.items(), key=lambda item: -len(item[1])):
+        blocks.append({"type": "divider"})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn",
+            "text": f"*{category}* ({len(group)} build{'s' if len(group) != 1 else ''})"}})
+
+        for result in group[:MAX_BUILDS_PER_CATEGORY]:
+            reason = truncate(result.reason or "")
+            blocks.append({"type": "section", "text": {"type": "mrkdwn",
+                "text": f"*{result.name}* [{result.stage or 'unknown stage'}]\n```{reason}```"}})
+
+        remaining = len(group) - MAX_BUILDS_PER_CATEGORY
+        if remaining > 0:
+            blocks.append({"type": "context",
+                "elements": [{"type": "mrkdwn", "text": f"...and {remaining} more builds"}]})
+
+    return blocks
+
+
+def send_slack_alert(results: list[BuildResult], webhook_url: str) -> None:
+    """POST a Block Kit summary to a Slack incoming webhook. Never raises."""
+    payload = {"blocks": build_slack_blocks(results)}
+    request = urllib.request.Request(
+        webhook_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            response.read()
+    except (urllib.error.URLError, OSError) as exc:
+        print(f"warning: failed to send Slack notification: {exc}", file=sys.stderr)
+
+
 def main() -> None:
     # Make stdout tolerant of odd Unicode in log content
     if hasattr(sys.stdout, "reconfigure"):
@@ -146,6 +206,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Triage Jenkins console logs.")
     parser.add_argument("dir", nargs="?", default=None, help="Path to logs directory (positional)")
     parser.add_argument("--dir", dest="dir_opt", default=None, help="Path to logs directory (flag form)")
+    parser.add_argument("--slack-webhook", default=os.environ.get("SLACK_WEBHOOK_URL"),
+        help="Slack incoming webhook URL to post a failure summary to (env: SLACK_WEBHOOK_URL)")
     args = parser.parse_args()
 
     logs_dir = Path(args.dir_opt or args.dir or "./logs")
@@ -154,6 +216,9 @@ def main() -> None:
 
     results = [parse_log(path) for path in sorted(logs_dir.glob("*.log"))]
     print(render_report(results, logs_dir))
+
+    if args.slack_webhook:
+        send_slack_alert(results, args.slack_webhook)
 
 
 if __name__ == "__main__":
