@@ -208,6 +208,8 @@ def main() -> None:
     parser.add_argument("--dir", dest="dir_opt", default=None, help="Path to logs directory (flag form)")
     parser.add_argument("--slack-webhook", default=os.environ.get("SLACK_WEBHOOK_URL"),
         help="Slack incoming webhook URL to post a failure summary to (env: SLACK_WEBHOOK_URL)")
+    parser.add_argument("-o", "--output", default=None,
+        help="Write the report to this file instead of stdout")
     args = parser.parse_args()
 
     logs_dir = Path(args.dir_opt or args.dir or "./logs")
@@ -215,7 +217,13 @@ def main() -> None:
         raise SystemExit(f"error: directory not found: {logs_dir}")
 
     results = [parse_log(path) for path in sorted(logs_dir.glob("*.log"))]
-    print(render_report(results, logs_dir))
+    report = render_report(results, logs_dir)
+
+    if args.output:
+        Path(args.output).write_text(report, encoding="utf-8")
+        print(f"Report written to {args.output}", file=sys.stderr)
+    else:
+        print(report)
 
     if args.slack_webhook:
         send_slack_alert(results, args.slack_webhook)
