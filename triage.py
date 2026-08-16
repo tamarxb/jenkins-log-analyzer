@@ -5,7 +5,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 import re
@@ -106,7 +106,7 @@ def cluster_failures(results: list[BuildResult]) -> dict[str, list[BuildResult]]
     return clusters
 
 
-def render_report(results: list[BuildResult], logs_dir: Path) -> str:
+def render_markdown(results: list[BuildResult], logs_dir: Path) -> str:
     lines = [
         "# Jenkins Build Triage Report",
         "",
@@ -140,6 +140,55 @@ def render_report(results: list[BuildResult], logs_dir: Path) -> str:
         lines.append(f"| {result.name} | {result.status} | {result.stage or ''} | {reason} |")
 
     return "\n".join(lines)
+
+
+def render_text(results: list[BuildResult], logs_dir: Path) -> str:
+    lines = [
+        "JENKINS BUILD TRIAGE REPORT",
+        f"Logs directory: {logs_dir}",
+        f"Builds analyzed: {len(results)}",
+        "",
+        "STATUS SUMMARY",
+    ]
+    for status, count in Counter(result.status for result in results).most_common():
+        lines.append(f"  {status}: {count}")
+
+    lines += ["", "ROOT CAUSE CLUSTERS"]
+    clusters = cluster_failures(results)
+    if not clusters:
+        lines.append("  No failures found.")
+    for category, group in sorted(clusters.items(), key=lambda item: -len(item[1])):
+        lines.append(f"  {category} ({len(group)} build{'s' if len(group) != 1 else ''})")
+        for result in group:
+            lines.append(f"    - {result.name} [{result.stage or 'unknown stage'}]: {result.reason}")
+
+    lines += ["", "PER-BUILD DETAILS"]
+    for result in results:
+        lines.append(f"  {result.name} | {result.status} | {result.stage or ''} | {result.reason or ''}")
+
+    return "\n".join(lines)
+
+
+def render_json(results: list[BuildResult], logs_dir: Path) -> str:
+    clusters = cluster_failures(results)
+    payload = {
+        "logs_directory": str(logs_dir),
+        "builds_analyzed": len(results),
+        "status_summary": dict(Counter(result.status for result in results)),
+        "root_cause_clusters": {
+            category: [asdict(result) for result in group]
+            for category, group in sorted(clusters.items(), key=lambda item: -len(item[1]))
+        },
+        "builds": [asdict(result) for result in results],
+    }
+    return json.dumps(payload, indent=2)
+
+
+RENDERERS = {"md": render_markdown, "text": render_text, "json": render_json}
+
+
+def render_report(results: list[BuildResult], logs_dir: Path, fmt: str = "md") -> str:
+    return RENDERERS[fmt](results, logs_dir)
 
 
 # Cap how many builds are listed per category so the Slack message stays
@@ -210,6 +259,8 @@ def main() -> None:
         help="Slack incoming webhook URL to post a failure summary to (env: SLACK_WEBHOOK_URL)")
     parser.add_argument("-o", "--output", default=None,
         help="Write the report to this file instead of stdout")
+    parser.add_argument("-f", "--format", choices=["md", "text", "json"], default="md",
+        help="Report output format: md (default), text, or json")
     args = parser.parse_args()
 
     logs_dir = Path(args.dir_opt or args.dir or "./logs")
@@ -217,7 +268,7 @@ def main() -> None:
         raise SystemExit(f"error: directory not found: {logs_dir}")
 
     results = [parse_log(path) for path in sorted(logs_dir.glob("*.log"))]
-    report = render_report(results, logs_dir)
+    report = render_report(results, logs_dir, args.format)
 
     if args.output:
         Path(args.output).write_text(report, encoding="utf-8")
