@@ -7,7 +7,7 @@
 A CLI tool that triages a directory of Jenkins console logs. It parses each
 build's outcome, failing stage, and one-line failure reason, clusters
 failures by likely root cause, and emits a report in Markdown, plain text,
-or JSON — with optional Slack alerting.
+or JSON.
 
 ## Overview
 
@@ -20,8 +20,8 @@ dependency taking down the whole pipeline.
 
 **Architectural approach:** a single file, zero external dependencies —
 pure Python 3.11+ standard library (`argparse`, `re`, `json`,
-`urllib.request`, `dataclasses`, `pathlib`). No `pip install` step, no
-virtualenv required to run it; copy `triage.py` anywhere Python 3.11 exists.
+`dataclasses`, `pathlib`). No `pip install` step, no virtualenv required to
+run it; copy `triage.py` anywhere Python 3.11 exists.
 
 ## Features
 
@@ -31,9 +31,6 @@ virtualenv required to run it; copy `triage.py` anywhere Python 3.11 exists.
   `-f`/`--format`.
 - **File export** — write the report straight to disk with `-o`/`--output`
   instead of stdout.
-- **Slack alerts** — a compact Block Kit summary posted to an incoming
-  webhook via `--slack-webhook`, capped in size so it never spams a channel.
-- **Developer tooling** — `Makefile`
 - **Crash-proof parsing** — malformed, empty, or binary log files degrade to
   an `UNKNOWN` result instead of raising.
 
@@ -54,9 +51,6 @@ python triage.py ./logs -f json
 
 # Export the report to a file instead of stdout
 python triage.py ./logs -f json -o report.json
-
-# Send a compact failure summary to Slack
-python triage.py ./logs --slack-webhook "$SLACK_WEBHOOK_URL"
 ```
 
 Run `python triage.py --help` for the full flag reference.
@@ -64,15 +58,10 @@ Run `python triage.py --help` for the full flag reference.
 ### Makefile
 
 ```bash
-make help          # list all available targets
-make run           # python triage.py ./logs (Markdown)
-make json          # python triage.py ./logs -f json
-make slack         # post the summary to Slack (needs SLACK_WEBHOOK_URL)
+make help   # list available targets
+make run    # python triage.py ./logs (Markdown)
+make json   # python triage.py ./logs -f json
 ```
-
-The image is built from `python:3.11-alpine` and copies in only
-`triage.py` — no dependency layer needed.
-`./logs` directory into the container at runtime.
 
 ## Classification Taxonomy & Assumptions
 
