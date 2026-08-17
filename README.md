@@ -33,7 +33,7 @@ virtualenv required to run it; copy `triage.py` anywhere Python 3.11 exists.
   instead of stdout.
 - **Slack alerts** — a compact Block Kit summary posted to an incoming
   webhook via `--slack-webhook`, capped in size so it never spams a channel.
-- **Developer tooling** — `Makefile`, `Dockerfile`
+- **Developer tooling** — `Makefile`
 - **Crash-proof parsing** — malformed, empty, or binary log files degrade to
   an `UNKNOWN` result instead of raising.
 
@@ -70,15 +70,8 @@ make json          # python triage.py ./logs -f json
 make slack         # post the summary to Slack (needs SLACK_WEBHOOK_URL)
 ```
 
-### Docker
-
-```bash
-make docker-build  # docker build -t jenkins-triage:latest .
-make docker-run     # run the image against ./logs
-```
-
 The image is built from `python:3.11-alpine` and copies in only
-`triage.py` — no dependency layer needed. `docker-run` mounts the local
+`triage.py` — no dependency layer needed.
 `./logs` directory into the container at runtime.
 
 ## Classification Taxonomy & Assumptions

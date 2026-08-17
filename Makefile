@@ -26,9 +26,3 @@ test: ## Run the unit test suite
 
 slack: ## Run triage.py and send a Slack alert (requires SLACK_WEBHOOK_URL)
 	$(PYTHON) triage.py $(LOGS_DIR) --slack-webhook "$(SLACK_WEBHOOK_URL)"
-
-docker-build: ## Build the Docker image locally
-	docker build -t $(IMAGE) .
-
-docker-run: ## Run the container against LOGS_DIR
-	docker run --rm -v "$(CURDIR)/$(LOGS_DIR):/app/logs" $(IMAGE) ./logs
