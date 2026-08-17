@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Optional
 import re
 
+MAX_LEN_ERROR_MESSAGE = 200
+
 # --- Regex patterns -------------------------------------------------------
 
 # Jenkins optionally prefixes lines with an "HH:MM:SS  " timestamp.
@@ -77,7 +79,7 @@ def parse_log(path: Path) -> BuildResult:
             current_stage = stage_match.group(1).strip()
 
         if result.reason is None and not NOISE_RE.match(line) and ERROR_RE.search(line):
-            result.reason = line[:200]
+            result.reason = line[:MAX_LEN_ERROR_MESSAGE]
             result.stage = current_stage
 
     if result.status == "SUCCESS":
